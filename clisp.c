@@ -139,7 +139,7 @@ int main(int argc,char* argv[])
               ",
               Number,Int,Float,Operator,Expr,Lispy);
     /****语法规则的描述******/
-    puts("Lispy Version 0.0.0.0.3");
+    puts("Lispy Version 0.0.0.0.4");
     puts("press Ctrl+c to Exit\n");
     while(1){
         char* input=readline("clisp> ");        
