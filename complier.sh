@@ -5,7 +5,7 @@ if [ $# != 1 ];then
 fi
 filename=$1
 if [ -f $filename ];then
-    gcc -Wall $filename mpc.c -ledit -lm -o clisp
+    gcc -Wall $filename ./lib/mpc.c -ledit -lm -o clisp
     exit 0
 else
     echo "$filename doesn't exists"
