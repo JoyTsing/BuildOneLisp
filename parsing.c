@@ -1,6 +1,6 @@
 #include <stdio.h>
-#include<stdlib.h>
-#include "./mpc.h"
+#include <stdlib.h>
+#include"./mpc.h"
 
 #ifdef _WIN32
 #include<string.h>
@@ -24,19 +24,25 @@ void add_history(char* unused){}
 
 int main(int argc,char* argv[])
 {
+    mpc_parser_t* Int       = mpc_new("int");
+    mpc_parser_t* Float     = mpc_new("float");
     mpc_parser_t* Number    = mpc_new("number");
     mpc_parser_t* Operator  = mpc_new("operator");
     mpc_parser_t* Expr      = mpc_new("expr");
     mpc_parser_t* Lispy     = mpc_new("lispy");//规则的描述
-    
+    //在解析number的时候是存在着先后顺序的 即如果把int
+    //提到前面的话则会存在int与float解析为字串的关系，即满足float一定满足int
+    //float不会被解析到
     mpca_lang(MPCA_LANG_DEFAULT,
-              "                                                     \
-                number   : /-?[0-9]+/ ;                             \
-                operator : '+' | '-' | '*' | '/';                   \
-                expr     : <number> | '(' <operator> <expr>+ ')';   \
-                lispy    : /^/ <operator> <expr>+ /$/;              \
+              "                               \
+                int         : /-?[0-9]+/;                               \
+                float       : /-?[0-9]+[.][0-9]+/;                      \
+                number      : <float> | <int>    ;                      \
+                operator    : '+' | '-' | '*' | '/' | '%';              \
+                expr        : <number> | '(' <operator> <expr>+ ')';    \
+                lispy       : /^/ <operator> <expr>+ | <number> /$/;               \
               ",
-              Number,Operator,Expr,Lispy);
+              Number,Int,Float,Operator,Expr,Lispy);
     /****语法规则的描述******/
     puts("Lispy Version 0.0.0.0.1");
     puts("press Ctrl+c to Exit\n");
@@ -55,6 +61,7 @@ int main(int argc,char* argv[])
         //
         free(input);
     }
+    mpc_cleanup(6,Int,Float,Number,Operator,Expr,Lispy);
     return 0;
 }
 
