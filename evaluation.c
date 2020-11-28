@@ -23,14 +23,11 @@ void add_history(char* unused){}
 #endif
 
 int number_of_nodes(mpc_ast_t* t);
-void printAstNode(mpc_ast_t* a);
-double eval(mpc_ast_t* t);
-double eval_op(double x,char* op,double y);
+long eval(mpc_ast_t* t);
+long eval_op(long x,char* op,long y);
 
 int main(int argc,char* argv[])
 {
-    mpc_parser_t* Int       = mpc_new("int");
-    mpc_parser_t* Float     = mpc_new("float");
     mpc_parser_t* Number    = mpc_new("number");
     mpc_parser_t* Operator  = mpc_new("operator");
     mpc_parser_t* Expr      = mpc_new("expr");
@@ -40,14 +37,12 @@ int main(int argc,char* argv[])
     //float不会被解析到
     mpca_lang(MPCA_LANG_DEFAULT,
               "                               \
-                int         : /-?[0-9]+/;                               \
-                float       : /-?[0-9]+[.][0-9]+/;                      \
-                number      : <float> | <int>    ;                      \
+                number      : /-?[0-9]+/;                               \
                 operator    : '+' | '-' | '*' | '/' ;                   \
                 expr        : <number> | '(' <operator> <expr>+ ')';    \
                 lispy       : /^/ <operator> <expr>+ /$/;               \
               ",
-              Number,Int,Float,Operator,Expr,Lispy);
+              Number,Operator,Expr,Lispy);
     /****语法规则的描述******/
     puts("Lispy Version 0.0.0.0.3");
     puts("press Ctrl+c to Exit\n");
@@ -58,8 +53,8 @@ int main(int argc,char* argv[])
         mpc_result_t r;
         if(mpc_parse("<stdin>",input,Lispy,&r)){
             
-            double result=eval(r.output);
-            printf("%f\n",result);
+            long result=eval(r.output);
+            printf("%li\n",result);
             //mpc_ast_print(r.output);
             mpc_ast_delete(r.output);
         }else{
@@ -69,18 +64,18 @@ int main(int argc,char* argv[])
         //
         free(input);
     }
-    mpc_cleanup(6,Int,Float,Number,Operator,Expr,Lispy);
+    mpc_cleanup(4,Number,Operator,Expr,Lispy);
     return 0;
 }
 
-double eval(mpc_ast_t* t){
+long eval(mpc_ast_t* t){
     if(strstr(t->tag,"number")){
-        return atof(t->contents);
+        return atoi(t->contents);
     }
 
     //表达式
     char* op=t->children[1]->contents;
-    double ret=eval(t->children[2]);
+    long ret=eval(t->children[2]);
     int i=3;
     while(strstr(t->children[i]->tag,"expr")){
         ret=eval_op(ret,op,eval(t->children[i]));
@@ -90,7 +85,7 @@ double eval(mpc_ast_t* t){
 }
 
 
-double eval_op(double x,char* op,double y){
+long eval_op(long x,char* op,long y){
     if(strcmp(op,"+")==0){return x+y;}
     if(strcmp(op,"-")==0){return x-y;}
     if(strcmp(op,"*")==0){return x*y;}
