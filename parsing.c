@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include<stdlib.h>
 #include "./mpc.h"
+
 #ifdef _WIN32
 #include<string.h>
 
@@ -33,7 +34,7 @@ int main(int argc,char* argv[])
                 number   : /-?[0-9]+/ ;                             \
                 operator : '+' | '-' | '*' | '/';                   \
                 expr     : <number> | '(' <operator> <expr>+ ')';   \
-                lispy    : /^/ <operator> <expr>| /$/;              \
+                lispy    : /^/ <operator> <expr>+ /$/;              \
               ",
               Number,Operator,Expr,Lispy);
     /****语法规则的描述******/
@@ -42,7 +43,16 @@ int main(int argc,char* argv[])
     while(1){
         char* input=readline("clisp> ");        
         add_history(input);
-        printf("%s\n",input);
+        //解析器
+        mpc_result_t r;
+        if(mpc_parse("<stdin>",input,Lispy,&r)){
+            mpc_ast_print(r.output);
+            mpc_ast_delete(r.output);
+        }else{
+            mpc_err_print(r.error);
+            mpc_err_delete(r.error);
+        }
+        //
         free(input);
     }
     return 0;
