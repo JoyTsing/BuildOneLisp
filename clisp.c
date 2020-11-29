@@ -25,7 +25,10 @@ void add_history(char* unused){}
 //值类型
 enum{
     LVAL_NUM,
-    LVAL_ERR
+    LVAL_ERR,
+    //S-expr
+    LVAL_SYM,//symbol
+    LVAL_SEXPR
 };
 //错误类型
 enum{
@@ -37,23 +40,60 @@ enum{
 typedef struct lval {
     int type;//0:num,1:err
     double num;
-    int err;
+    //types string message
+    char* err;
+    char* sym;
+    //count and pointer to a list of lval*
+    int count;
+    struct lval** cell;//not only one
 }lval;
 
-//构造
-lval lval_num(double x){
-    lval v;
-    v.type=LVAL_NUM;
-    v.num=x;
+//construct
+lval* lval_num(double x){
+    lval* v=(lval* )malloc(sizeof(lval));
+    v->type=LVAL_NUM;
+    v->num=x;
     return v;
 }
 
-//构造
-lval lval_err(int x){
-    lval v;
-    v.type=LVAL_ERR;
-    v.err=x;
+lval* lval_err(char* m){
+    lval* v=(lval* )malloc(sizeof(lval));
+    v->type=LVAL_ERR;
+    v->err=(char* )malloc(strlen(m)+1);
+    strcpy(v->err,m);
     return v;
+}
+
+lval* lval_sym(char* s){
+    lval* v=(lval* )malloc(sizeof(lval));
+    v->type=LVAL_SYM;
+    v->sym=(char* )malloc(strlen(s)+1);
+    strcpy(v->sym,s);
+    return v;
+}
+
+lval* lval_sexpr(){
+    lval* v=(lval* )malloc(sizeof(lval));
+    v->type=LVAL_SEXPR;
+    v->count=0;
+    v->cell=NULL;
+    return v;
+}
+
+//delete
+void lval_del(lval* v){
+    switch(v->type){
+        case LVAL_NUM:break;
+        case LVAL_ERR:free(v->err);break;
+        case LVAL_SYM:free(v->sym);break;
+        case LVAL_SEXPR:
+            for(int i=0;i<v->count;i++){
+                lval_del(v->cell[i]);
+            }
+            free(v->cell);
+            break;
+    }
+    free(v);
 }
 
 void lval_print(lval v){
@@ -122,22 +162,24 @@ int main(int argc,char* argv[])
     mpc_parser_t* Int       = mpc_new("int");
     mpc_parser_t* Float     = mpc_new("float");
     mpc_parser_t* Number    = mpc_new("number");
-    mpc_parser_t* Operator  = mpc_new("operator");
+    mpc_parser_t* Symbol    = mpc_new("symbol");
+    mpc_parser_t* Sexpr     = mpc_new("sexpr");
     mpc_parser_t* Expr      = mpc_new("expr");
     mpc_parser_t* Lispy     = mpc_new("lispy");//规则的描述
     //在解析number的时候是存在着先后顺序的 即如果把int
     //提到前面的话则会存在int与float解析为字串的关系，即满足float一定满足int
     //float不会被解析到
     mpca_lang(MPCA_LANG_DEFAULT,
-              "                               \
+              "                                                         \
                 int         : /-?[0-9]+/;                               \
                 float       : /-?[0-9]+[.][0-9]+/;                      \
                 number      : <float> | <int>    ;                      \
-                operator    : '+' | '-' | '*' | '/' ;                   \
-                expr        : <number> | '(' <operator> <expr>+ ')';    \
-                lispy       : /^/ <operator> <expr>+ /$/;               \
+                symbol      : '+' | '-' | '*' | '/' ;                   \
+                sexpr       : '(' <expr>* ')';                          \
+                expr        : <number> |  <symbol> | <sexpr> ;          \
+                lispy       : /^/ <expr>* /$/;                          \
               ",
-              Number,Int,Float,Operator,Expr,Lispy);
+              Number,Int,Float,Symbol,Sexpr,Expr,Lispy);
     /****语法规则的描述******/
     puts("Lispy Version 0.0.0.0.4");
     puts("press Ctrl+c to Exit\n");
@@ -159,7 +201,7 @@ int main(int argc,char* argv[])
         //
         free(input);
     }
-    mpc_cleanup(6,Int,Float,Number,Operator,Expr,Lispy);
+    mpc_cleanup(7,Int,Float,Number,Symbol,Sexpr,Expr,Lispy);
     return 0;
 }
 
