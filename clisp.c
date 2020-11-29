@@ -27,7 +27,6 @@ void add_history(char* unused){}
 enum{
     LVAL_NUM,
     LVAL_ERR,
-    //S-expr
     LVAL_SYM,//symbol
     LVAL_SEXPR,
     LVAL_QEXPR
@@ -100,6 +99,7 @@ void lval_del(lval* v){
         case LVAL_NUM:break;
         case LVAL_ERR:free(v->err);break;
         case LVAL_SYM:free(v->sym);break;
+
         case LVAL_QEXPR:
         case LVAL_SEXPR:
             for(int i=0;i<v->count;i++){
@@ -353,7 +353,7 @@ lval* builtin(lval* a,char* func){
     if(strcmp("tail",func)==0){return builtin_tail(a);}
     if(strcmp("join",func)==0){return builtin_join(a);}
     if(strcmp("eval",func)==0){return builtin_eval(a);}
-    if(strcmp("+-/*",func)==0){return builtin_op(a,func);}
+    if(strstr("+-/*",func)){return builtin_op(a,func);}
     lval_del(a);
     return lval_err("Unknown Function");
 }
