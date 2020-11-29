@@ -111,7 +111,7 @@ void lval_del(lval* v){
     free(v);
 }
 
-
+//
 lval* lval_read_num(mpc_ast_t* t){
     errno=0;
     double x=strtod(t->contents,NULL);
@@ -177,11 +177,13 @@ void lval_println(lval* v){
     putchar('\n');
 }
 
+/*******Sexpr*******/
 lval* lval_eval(lval*);
 lval* lval_eval_sexpr(lval*);
 lval* lval_pop(lval*,int);//将操作的S表达式的第i个元素取出并补齐空缺，不删除表达式
 lval* lval_take(lval*,int);//取出元素后将剩下的列表删除
 lval* builtin_op(lval*,char*);
+lval* builtin(lval*,char*);
 
 lval* lval_pop(lval* v,int i){
     lval* x=v->cell[i];
@@ -198,38 +200,6 @@ lval* lval_take(lval* v,int i){
     return x;
 }
 
-lval* builtin_op(lval* a,char* op){
-    for(int i=0;i<a->count;i++){
-        if(a->cell[i]->type!=LVAL_NUM){
-            lval_del(a);
-            return lval_err("can't operator on non-number");
-        }
-    }
-
-    lval* x=lval_pop(a,0);
-    if((strcmp(op,"-")==0)&&a->count==0){
-        x->num=-x->num;
-    }
-
-    while(a->count>0){
-        lval* y=lval_pop(a,0);
-        if(strcmp(op,"+")==0){x->num+=y->num;}
-        if(strcmp(op,"-")==0){x->num-=y->num;}
-        if(strcmp(op,"*")==0){x->num*=y->num;}
-        if(strcmp(op,"/")==0){
-            if(y->num==0){
-                lval_del(x);
-                lval_del(y);
-                x=lval_err("Division by zero");
-                break;
-            }
-            x->num/=y->num;
-        }
-        lval_del(y);
-    }
-    lval_del(a);
-    return x;
-}
 
 lval* lval_eval(lval* v){
     //evaluate sexpressions
@@ -264,9 +234,128 @@ lval* lval_eval_sexpr(lval* v){
     }
 
     //call builtin with operator
-    lval* result=builtin_op(v,f->sym);
+    lval* result=builtin(v,f->sym);
     lval_del(f);
     return result;
+}
+
+/*******Qexpr*******/
+#define LASSERT(args,cond,err)\
+    if(!(cond)){ lval_del(args);return lval_err(err); }
+
+lval* builtin_op(lval* a,char* op){
+    for(int i=0;i<a->count;i++){
+        if(a->cell[i]->type!=LVAL_NUM){
+            lval_del(a);
+            return lval_err("can't operator on non-number");
+        }
+    }
+
+    lval* x=lval_pop(a,0);
+    if((strcmp(op,"-")==0)&&a->count==0){
+        x->num=-x->num;
+    }
+
+    while(a->count>0){
+        lval* y=lval_pop(a,0);
+        if(strcmp(op,"+")==0){x->num+=y->num;}
+        if(strcmp(op,"-")==0){x->num-=y->num;}
+        if(strcmp(op,"*")==0){x->num*=y->num;}
+        if(strcmp(op,"/")==0){
+            if(y->num==0){
+                lval_del(x);
+                lval_del(y);
+                x=lval_err("Division by zero");
+                break;
+            }
+            x->num/=y->num;
+        }
+        lval_del(y);
+    }
+    lval_del(a);
+    return x;
+}
+
+lval* builtin_head(lval* a){
+    LASSERT(a,a->count==1,
+        "Function 'head' passed wrong arguments");
+
+    LASSERT(a,a->cell[0]->type==LVAL_QEXPR,
+        "Function 'head' passed incorrect types");
+
+    LASSERT(a,a->cell[0]->count!=0,
+        "Function 'head' passed {}");
+
+    lval* v=lval_take(a,0);
+    while(v->count>1){
+        lval_del(lval_pop(v,1));
+    }
+    return v;
+}
+
+lval* builtin_tail(lval* a){
+    LASSERT(a,a->count==1,
+        "Function 'tail' passed wrong arguments");
+
+    LASSERT(a,a->cell[0]->type==LVAL_QEXPR,
+        "Function 'tail' passed incorrect types");
+
+    LASSERT(a,a->cell[0]->count!=0,
+        "Function 'tail' passed {}");
+
+    lval* v=lval_take(a,0);
+    lval_del(lval_pop(v,0));
+    return v;
+}
+
+lval* builtin_list(lval* a){
+    a->type=LVAL_QEXPR;
+    return a;
+}
+
+lval* builtin_eval(lval* a){
+    LASSERT(a,a->count==1,
+            "Function 'eval' passed worng arguments");
+    LASSERT(a,a->cell[0]->type==LVAL_QEXPR,
+            "Function 'eval' passed incorrect type");
+
+    lval* x=lval_take(a,0);
+    x->type=LVAL_SEXPR;
+    return lval_eval(x);
+}
+
+
+lval* lval_join(lval* x,lval* y){
+    while(y->count){
+        x=lval_add(x,lval_pop(y,0));
+    }
+    lval_del(y);
+    return x;
+}
+
+lval* builtin_join(lval* a){
+    for(int i=0;i<a->count;i++){
+        LASSERT(a,a->cell[i]->type==LVAL_QEXPR,
+                "Function 'join' passed incorrect type");
+    }
+
+    lval* x=lval_pop(a,0);
+    while(a->count){
+        x=lval_join(x,lval_pop(a,0));
+    }
+    lval_del(a);
+    return x;
+}
+
+lval* builtin(lval* a,char* func){
+    if(strcmp("list",func)==0){return builtin_list(a);}
+    if(strcmp("head",func)==0){return builtin_head(a);}
+    if(strcmp("tail",func)==0){return builtin_tail(a);}
+    if(strcmp("join",func)==0){return builtin_join(a);}
+    if(strcmp("eval",func)==0){return builtin_eval(a);}
+    if(strcmp("+-/*",func)==0){return builtin_op(a,func);}
+    lval_del(a);
+    return lval_err("Unknown Function");
 }
 
 int number_of_nodes(mpc_ast_t* t){
@@ -299,20 +388,30 @@ int main(int argc,char* argv[])
     //在解析number的时候是存在着先后顺序的 即如果把int
     //提到前面的话则会存在int与float解析为字串的关系，即满足float一定满足int
     //float不会被解析到
+
+    /*
+     * 语法规则：
+     * list:接受一个或者多个参数，返回第一个包含所有参数的Q-表达式
+     * head:接受一个Q-表达式，返回一个包含其第一个元素的Q-表达式(car)
+     * tail:接受一个Q-表达式，返回一个除首元素外的Q-表达式(cdr)
+     * join:接受一个或者多个Q-表达式，返回一个将其连在一起的Q-表达式
+     * eval:接受一个Q-表达式，将其看做一个S-表达式并运算
+     */
     mpca_lang(MPCA_LANG_DEFAULT,
-              "                                                         \
-                int         : /-?[0-9]+/;                               \
-                float       : /-?[0-9]+[.][0-9]+/;                      \
-                number      : <float> | <int>    ;                      \
-                symbol      : '+' | '-' | '*' | '/' ;                   \
-                sexpr       : '(' <expr>* ')';                          \
-                qexpr       : '{' <expr>* '}';                          \
-                expr        : <number> |  <symbol> | <sexpr> | <qexpr>; \
-                lispy       : /^/ <expr>* /$/;                          \
+              "                                                             \
+                int         : /-?[0-9]+/;                                   \
+                float       : /-?[0-9]+[.][0-9]+/;                          \
+                number      : <float> | <int>    ;                          \
+                symbol      : \"list\" | \"head\" |\"tail\"                 \
+                            | \"join\" | \"eval\" | '+' | '-' | '*' | '/' ; \
+                sexpr       : '(' <expr>* ')';                              \
+                qexpr       : '{' <expr>* '}';                              \
+                expr        : <number> |  <symbol> | <sexpr> | <qexpr>;     \
+                lispy       : /^/ <expr>* /$/;                              \
               ",
               Number,Int,Float,Symbol,Sexpr,Qexpr,Expr,Lispy);
     /****语法规则的描述******/
-    puts("Lispy Version 0.0.0.0.8");
+    puts("Lispy Version 0.0.0.1.0");
     puts("press Ctrl+c to Exit\n");
     while(1){
         char* input=readline("clisp> ");
