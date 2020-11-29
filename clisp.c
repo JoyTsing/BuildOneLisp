@@ -29,8 +29,10 @@ enum{
     LVAL_ERR,
     //S-expr
     LVAL_SYM,//symbol
-    LVAL_SEXPR
+    LVAL_SEXPR,
+    LVAL_QEXPR
 };
+
 //错误类型
 enum{
     LERR_DIV_ZERO,
@@ -84,12 +86,21 @@ lval* lval_sexpr(){
     return v;
 }
 
+lval* lval_qexpr(){
+    lval* v=(lval*)malloc(sizeof(lval));
+    v->type=LVAL_QEXPR;
+    v->count=0;
+    v->cell=NULL;
+    return v;
+}
+
 //delete
 void lval_del(lval* v){
     switch(v->type){
         case LVAL_NUM:break;
         case LVAL_ERR:free(v->err);break;
         case LVAL_SYM:free(v->sym);break;
+        case LVAL_QEXPR:
         case LVAL_SEXPR:
             for(int i=0;i<v->count;i++){
                 lval_del(v->cell[i]);
@@ -123,6 +134,7 @@ lval* lval_read(mpc_ast_t* t){
     //if root (>) or sexpr, create empty list
     if(strcmp(t->tag,">")==0)   {x=lval_sexpr();}
     if(strcmp(t->tag,"sexpr"))  {x=lval_sexpr();}
+    if(strstr(t->tag,"qexpr"))  {x=lval_qexpr();}
 
     //fill the list with any valid expression ontained within
     for(int i=0;i<t->children_num;i++){
@@ -145,6 +157,7 @@ void lval_print(lval* v){
         case LVAL_ERR:printf("Error :%s",v->err);break;
         case LVAL_SYM:printf("%s",v->sym);break;
         case LVAL_SEXPR:lval_expr_print(v,'(',')');break;
+        case LVAL_QEXPR:lval_expr_print(v,'{','}');break;
     }
 }
 
@@ -159,42 +172,102 @@ void lval_expr_print(lval* v,char open,char close){
     putchar(close);
 }
 
-
-
 void lval_println(lval* v){
     lval_print(v);
     putchar('\n');
 }
 
-/*
-lval eval_op(lval x,char* op,lval y){
-    if(strcmp(op,"+")==0){return lval_num(x.num+y.num);}
-    if(strcmp(op,"-")==0){return lval_num(x.num-y.num);}
-    if(strcmp(op,"*")==0){return lval_num(x.num*y.num);}
-    if(strcmp(op,"/")==0){
-        return y.num==0?lval_err(LERR_DIV_ZERO):lval_num(x.num/y.num);
-    }
-    return lval_err(LERR_BAD_OP);
+lval* lval_eval(lval*);
+lval* lval_eval_sexpr(lval*);
+lval* lval_pop(lval*,int);//将操作的S表达式的第i个元素取出并补齐空缺，不删除表达式
+lval* lval_take(lval*,int);//取出元素后将剩下的列表删除
+lval* builtin_op(lval*,char*);
+
+lval* lval_pop(lval* v,int i){
+    lval* x=v->cell[i];
+    memmove(&v->cell[i],&v->cell[i+1],
+            sizeof(lval*)*(v->count-i-1));
+    v->count--;
+    v->cell=(lval**)realloc(v->cell,sizeof(lval*)*v->count);
+    return x;
 }
 
-lval eval(mpc_ast_t* t){
-    if(strstr(t->tag,"number")){
-        errno=0;
-        double x=strtod(t->contents,NULL);
-        return errno!=ERANGE ? lval_num(x):lval_err(LERR_BAD_NUM);
+lval* lval_take(lval* v,int i){
+    lval* x=lval_pop(v,i);
+    lval_del(v);
+    return x;
+}
+
+lval* builtin_op(lval* a,char* op){
+    for(int i=0;i<a->count;i++){
+        if(a->cell[i]->type!=LVAL_NUM){
+            lval_del(a);
+            return lval_err("can't operator on non-number");
+        }
     }
 
-    //表达式
-    char* op=t->children[1]->contents;
-    lval ret=eval(t->children[2]);
-    int i=3;
-    while(strstr(t->children[i]->tag,"expr")){
-        ret=eval_op(ret,op,eval(t->children[i]));
-        i++;
+    lval* x=lval_pop(a,0);
+    if((strcmp(op,"-")==0)&&a->count==0){
+        x->num=-x->num;
     }
-    return ret;
+
+    while(a->count>0){
+        lval* y=lval_pop(a,0);
+        if(strcmp(op,"+")==0){x->num+=y->num;}
+        if(strcmp(op,"-")==0){x->num-=y->num;}
+        if(strcmp(op,"*")==0){x->num*=y->num;}
+        if(strcmp(op,"/")==0){
+            if(y->num==0){
+                lval_del(x);
+                lval_del(y);
+                x=lval_err("Division by zero");
+                break;
+            }
+            x->num/=y->num;
+        }
+        lval_del(y);
+    }
+    lval_del(a);
+    return x;
 }
-*/
+
+lval* lval_eval(lval* v){
+    //evaluate sexpressions
+    if(v->type==LVAL_SEXPR){return lval_eval_sexpr(v);}
+    //all other lval types reamin the same
+    return v;
+}
+
+lval* lval_eval_sexpr(lval* v){
+    //empty
+    if(v->count==0){return v;}
+    //single
+    if(v->count==1){
+        return lval_take(v,0);
+    }
+
+    //evaluate children
+    for(int i=0;i<v->count;i++){
+        v->cell[i]=lval_eval(v->cell[i]);
+    }
+    //error
+    for(int i=0;i<v->count;i++){
+        if(v->cell[i]->type==LVAL_ERR){return lval_take(v,i);}
+    }
+
+    //保证第一个元素是symbol
+    lval* f=lval_pop(v,0);
+    if(f->type!=LVAL_SYM){
+        lval_del(f);
+        lval_del(v);
+        return lval_err("S-expression does not start with symbol");
+    }
+
+    //call builtin with operator
+    lval* result=builtin_op(v,f->sym);
+    lval_del(f);
+    return result;
+}
 
 int number_of_nodes(mpc_ast_t* t){
     if(t->children_num == 0)
@@ -208,11 +281,19 @@ int number_of_nodes(mpc_ast_t* t){
 
 int main(int argc,char* argv[])
 {
+    /*
+     * 添加新特性的一个典型方式：
+     * 语法：为新特性添加新的语法规则
+     * 表示：为新特性添加新的数据类型
+     * 解析：为新特性添加新的函数，处理AST
+     * 语义：为新特性添加新的函数，用于求值和操作
+     */
     mpc_parser_t* Int       = mpc_new("int");
     mpc_parser_t* Float     = mpc_new("float");
     mpc_parser_t* Number    = mpc_new("number");
     mpc_parser_t* Symbol    = mpc_new("symbol");
-    mpc_parser_t* Sexpr     = mpc_new("sexpr");
+    mpc_parser_t* Sexpr     = mpc_new("sexpr");//
+    mpc_parser_t* Qexpr     = mpc_new("qexpr");//Q表达式不会去求值，而是保持原有，存储在{}中
     mpc_parser_t* Expr      = mpc_new("expr");
     mpc_parser_t* Lispy     = mpc_new("lispy");//规则的描述
     //在解析number的时候是存在着先后顺序的 即如果把int
@@ -225,12 +306,13 @@ int main(int argc,char* argv[])
                 number      : <float> | <int>    ;                      \
                 symbol      : '+' | '-' | '*' | '/' ;                   \
                 sexpr       : '(' <expr>* ')';                          \
-                expr        : <number> |  <symbol> | <sexpr> ;          \
+                qexpr       : '{' <expr>* '}';                          \
+                expr        : <number> |  <symbol> | <sexpr> | <qexpr>; \
                 lispy       : /^/ <expr>* /$/;                          \
               ",
-              Number,Int,Float,Symbol,Sexpr,Expr,Lispy);
+              Number,Int,Float,Symbol,Sexpr,Qexpr,Expr,Lispy);
     /****语法规则的描述******/
-    puts("Lispy Version 0.0.0.0.4");
+    puts("Lispy Version 0.0.0.0.8");
     puts("press Ctrl+c to Exit\n");
     while(1){
         char* input=readline("clisp> ");
@@ -239,7 +321,7 @@ int main(int argc,char* argv[])
         mpc_result_t r;
         if(mpc_parse("<stdin>",input,Lispy,&r)){
 
-            lval*x =lval_read(r.output);
+            lval*x =lval_eval(lval_read(r.output));
             lval_println(x);
             //mpc_ast_print(r.output);
             lval_del(x);
@@ -250,7 +332,7 @@ int main(int argc,char* argv[])
         //
         free(input);
     }
-    mpc_cleanup(7,Int,Float,Number,Symbol,Sexpr,Expr,Lispy);
+    mpc_cleanup(8,Int,Float,Number,Symbol,Sexpr,Qexpr,Expr,Lispy);
     return 0;
 }
 
