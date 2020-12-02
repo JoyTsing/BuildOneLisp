@@ -16,12 +16,25 @@ char* readline(char* prompt){
     return cpy;
 }
 void add_history(char* unused){}
+
 #else
 //解决linux下小键盘移动出现[[^C的问题
 //以上两个库解决小键盘移动失效的问题
 #include<editline/readline.h>
 #include<editline/history.h>
 #endif
+
+//parser声明
+mpc_parser_t* Int;
+mpc_parser_t* Float;
+mpc_parser_t* Number;
+mpc_parser_t* Symbol;
+mpc_parser_t* Sexpr;
+mpc_parser_t* Qexpr;
+mpc_parser_t* Expr;
+mpc_parser_t* String;
+mpc_parser_t* Comment;
+mpc_parser_t* Lispy;
 
 /*前置声明*/
 struct lval;
@@ -34,6 +47,7 @@ enum{
     LVAL_NUM,
     LVAL_ERR,
     LVAL_SYM,//symbol
+    LVAL_STR,
     LVAL_FUN,
     LVAL_SEXPR,
     LVAL_QEXPR
@@ -55,6 +69,7 @@ struct lval {
     //types string message
     char* err;
     char* sym;//symbol
+    char* str;
 
     //function
     lbuiltin builtin;//存储是否为内建函数
@@ -83,10 +98,12 @@ char* ltype_name(int t){
         case LVAL_SYM: return "Symbol";
         case LVAL_SEXPR: return "S-Expression";
         case LVAL_QEXPR: return "Q-Expression";
+        case LVAL_STR: return "String";
         default: return "Unknown";
     }
 }
 
+void lval_print_str(lval*);
 void lval_expr_print(lval*,char,char);
 void lval_print(lval*);
 lenv* lenv_new();
@@ -165,6 +182,14 @@ lval* lval_lambda(lval* foramls,lval* body){
     return v;
 }
 
+lval* lval_str(char* s){
+    lval* v=(lval*)malloc(sizeof(lval));
+    v->type=LVAL_STR;
+    v->str=(char*)malloc(strlen(s)+1);
+    strcpy(v->str,s);
+    return v;
+}
+
 /*
  * construct lenv
  */
@@ -195,6 +220,7 @@ void lval_del(lval* v){
         case LVAL_NUM:break;
         case LVAL_ERR:free(v->err);break;
         case LVAL_SYM:free(v->sym);break;
+        case LVAL_STR:free(v->str);break;
         case LVAL_QEXPR:
         case LVAL_SEXPR:
             for(int i=0;i<v->count;i++){
@@ -227,6 +253,7 @@ int lval_eq(lval* x,lval* y){
         case LVAL_NUM:return (x->num==y->num);
         case LVAL_ERR:return (strcmp(x->err,y->err)==0);
         case LVAL_SYM:return (strcmp(x->sym,y->sym)==0);
+        case LVAL_STR:return (strcmp(x->str,y->str)==0);
         case LVAL_FUN:
             if(x->builtin||y->builtin){
                 return x->builtin==y->builtin;
@@ -254,6 +281,17 @@ lval* lval_read_num(mpc_ast_t* t){
         lval_num(x):lval_err("invalid number");
 }
 
+//需要剥离引号并对转移字符串解码
+lval* lval_read_str(mpc_ast_t* t){
+    t->contents[strlen(t->contents)-1]='\0';
+    char* unescaped=(char*)malloc(strlen(t->contents+1)+1);//偏移1位去除“
+    strcpy(unescaped,t->contents+1);
+    unescaped=(char*)mpcf_unescape(unescaped);
+    lval* str=lval_str(unescaped);
+    free(unescaped);
+    return str;
+}
+
 lval* lval_add(lval* v,lval* x){
     v->count++;
     v->cell=(struct lval**)realloc(v->cell,sizeof(lval*)*v->count);
@@ -264,6 +302,7 @@ lval* lval_add(lval* v,lval* x){
 lval* lval_read(mpc_ast_t* t){
     if(strstr(t->tag,"number")){return lval_read_num(t);}
     if(strstr(t->tag,"symbol")){return lval_sym(t->contents);}
+    if(strstr(t->tag,"string")){return lval_read_str(t);}
 
     lval* x=NULL;
     //if root (>) or sexpr, create empty list
@@ -278,6 +317,7 @@ lval* lval_read(mpc_ast_t* t){
         if(strcmp(content,")")==0){continue;}
         if(strcmp(content,"{")==0){continue;}
         if(strcmp(content,"}")==0){continue;}
+        if(strstr(t->children[i]->tag,"comment")){continue;}
         if(strcmp(t->children[i]->tag,"regex")==0){continue;}
         x=lval_add(x,lval_read(t->children[i]));
     }
@@ -316,6 +356,11 @@ lval* lval_copy(lval* v){
         case LVAL_SYM:
             x->sym=(char*)malloc(strlen(v->sym)+1);
             strcpy(x->sym,v->sym);
+            break;
+
+        case LVAL_STR:
+            x->str=(char*)malloc(strlen(v->str)+1);
+            strcpy(x->str,v->str);
             break;
 
         case LVAL_SEXPR:
@@ -394,7 +439,7 @@ void lval_print(lval* v){
             if(v->builtin){
                 printf("<builtin>");
             }else{
-                printf("(\\");
+                printf("(\\ ");
                 lval_print(v->foramls);
                 putchar(' ');
                 lval_print(v->body);
@@ -404,6 +449,7 @@ void lval_print(lval* v){
         case LVAL_NUM:printf("%f",v->num);break;
         case LVAL_ERR:printf("Error : %s",v->err);break;
         case LVAL_SYM:printf("%s",v->sym);break;
+        case LVAL_STR:lval_print_str(v);break;
         case LVAL_SEXPR:lval_expr_print(v,'(',')');break;
         case LVAL_QEXPR:lval_expr_print(v,'{','}');break;
     }
@@ -418,6 +464,14 @@ void lval_expr_print(lval* v,char open,char close){
         }
     }
     putchar(close);
+}
+
+void lval_print_str(lval* v){
+    char* escaped=(char*)malloc(strlen(v->str)+1);
+    strcpy(escaped,v->str);
+    escaped=(char*)mpcf_escape(escaped);
+    printf("\"%s\"",escaped);
+    free(escaped);
 }
 
 void lval_println(lval* v){
@@ -587,6 +641,13 @@ lval* lval_call(lenv* e,lval* f,lval* a){
       LASSERT(args, args->cell[index]->count != 0, \
         "Function '%s' passed {} for argument %i.", func, index);
 
+lval* builtin_error(lenv* e,lval* a){
+    LASSERT_NUM("error", a, 1);
+    LASSERT_TYPE("error", a, 0, LVAL_STR);
+    lval* err=lval_err(a->cell[0]->str);
+    lval_del(a);
+    return err;
+}
 
 lval* builtin_op(lenv* e,lval* a,char* op){
     for(int i=0;i<a->count;i++){
@@ -865,6 +926,45 @@ lval* builtin_lambda(lenv* e,lval* a){
     return lval_lambda(foramls,body);
 }
 
+lval* builtin_print(lenv* e,lval* a){
+    for(int i=0;i<a->count;i++){
+        lval_print(a->cell[i]);
+        putchar(' ');
+    }
+    putchar('\n');
+    lval_del(a);
+    return lval_sexpr();
+}
+
+lval* builtin_load(lenv* e,lval* a){
+    LASSERT_NUM("load", a, 1);
+    LASSERT_TYPE("load", a, 0, LVAL_STR);
+
+    mpc_result_t r;
+    if(mpc_parse_contents(a->cell[0]->str,Lispy,&r)){
+        lval* expr=lval_read(r.output);
+        mpc_ast_delete(r.output);
+
+        while(expr->count){
+            lval* x=lval_eval(e,lval_pop(expr,0));
+            if(x->type==LVAL_ERR){
+                lval_println(x);
+            }
+            lval_del(x);
+        }
+        lval_del(expr);
+        lval_del(a);
+        return lval_sexpr();
+    }else{
+        char* err_msg=mpc_err_string(r.error);
+        mpc_err_delete(r.error);
+        lval* err=lval_err("Could not load Library %s",err_msg);
+        free(err_msg);
+        lval_del(a);
+        return err;
+    }
+}
+
 void lenv_add_builtins(lenv* e){
 
     lenv_add_builtin(e,"\\",builtin_lambda);
@@ -891,6 +991,11 @@ void lenv_add_builtins(lenv* e){
     lenv_add_builtin(e, "<",  builtin_lt);
     lenv_add_builtin(e, ">=", builtin_ge);
     lenv_add_builtin(e, "<=", builtin_le);
+
+    /* String Functions */
+    lenv_add_builtin(e, "load",  builtin_load);
+    lenv_add_builtin(e, "error", builtin_error);
+    lenv_add_builtin(e, "print", builtin_print);
 }
 
 /**
@@ -925,14 +1030,17 @@ int main(int argc,char* argv[]){
      * 解析：为新特性添加新的函数，处理AST
      * 语义：为新特性添加新的函数，用于求值和操作
      */
-    mpc_parser_t* Int       = mpc_new("int");
-    mpc_parser_t* Float     = mpc_new("float");
-    mpc_parser_t* Number    = mpc_new("number");
-    mpc_parser_t* Symbol    = mpc_new("symbol");
-    mpc_parser_t* Sexpr     = mpc_new("sexpr");//
-    mpc_parser_t* Qexpr     = mpc_new("qexpr");//Q表达式不会去求值，而是保持原有，存储在{}中
-    mpc_parser_t* Expr      = mpc_new("expr");
-    mpc_parser_t* Lispy     = mpc_new("lispy");//规则的描述
+    Int       = mpc_new("int");
+    Float     = mpc_new("float");
+    Number    = mpc_new("number");
+    Symbol    = mpc_new("symbol");
+    Sexpr     = mpc_new("sexpr");//
+    Qexpr     = mpc_new("qexpr");//Q表达式不会去求值，而是保持原有，存储在{}中
+    Expr      = mpc_new("expr");
+    String    = mpc_new("string");
+    Comment   = mpc_new("comment");
+    Lispy     = mpc_new("lispy");//规则的描述
+
     //在解析number的时候是存在着先后顺序的 即如果把int
     //提到前面的话则会存在int与float解析为字串的关系，即满足float一定满足int
     //float不会被解析到
@@ -949,43 +1057,63 @@ int main(int argc,char* argv[]){
               "                                                             \
                 int         : /-?[0-9]+/;                                   \
                 float       : /-?[0-9]+[.][0-9]+/;                          \
+                string      : /\"(\\\\.|[^\"])*\"/ ;                        \
+                comment     : /;[^\\r\\n]*/ ;                               \ 
                 number      : <float> | <int>    ;                          \
                 symbol      : /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/;             \
                 sexpr       : '(' <expr>* ')';                              \
                 qexpr       : '{' <expr>* '}';                              \
-                expr        : <number> |  <symbol> | <sexpr> | <qexpr>;     \
+                expr        : <number> |  <symbol> | <string> |             \
+                              <comment> | <sexpr> | <qexpr>;                \
                 lispy       : /^/ <expr>* /$/;                              \
               ",
-              Number,Int,Float,Symbol,Sexpr,Qexpr,Expr,Lispy);
+              Number,Int,Float,Symbol,String,Comment,Sexpr,Qexpr,Expr,Lispy);
     /****语法规则的描述******/
-    puts("CLisp Version 0.0.0.1.1");
-    puts("press Ctrl+c to Exit\n");
 
     lenv* e=lenv_new();
     lenv_add_builtins(e);
 
-    while(1){
-        char* input=readline("clisp> ");
-        add_history(input);
-        //解析器
-        mpc_result_t r;
-        if(mpc_parse("<stdin>",input,Lispy,&r)){
+    if(argc==1){
 
-            lval*x =lval_eval(e,lval_read(r.output));
-            lval_println(x);
-            //mpc_ast_print(r.output);
-            lval_del(x);
+        puts("CLisp Version 0.0.0.1.10");
+        puts("press Ctrl+c to Exit\n");
 
-            mpc_ast_delete(r.output);
-        }else{
-            mpc_err_print(r.error);
-            mpc_err_delete(r.error);
+        while(1){
+            char* input=readline("clisp>>> ");
+            add_history(input);
+            //解析器
+            mpc_result_t r;
+            if(mpc_parse("<stdin>",input,Lispy,&r)){
+
+                lval*x =lval_eval(e,lval_read(r.output));
+                lval_println(x);
+                //mpc_ast_print(r.output);
+                lval_del(x);
+
+                mpc_ast_delete(r.output);
+            }else{
+                mpc_err_print(r.error);
+                mpc_err_delete(r.error);
+            }
+
+            free(input);
         }
-
-        free(input);
     }
+
+    if(argc>=2){
+        for(int i=1;i<argc;i++){
+            lval* args=lval_add(lval_sexpr(),lval_str(argv[i]));
+            lval* x=builtin_load(e,args);
+            if(x->type==LVAL_ERR){
+                lval_println(x);
+            }
+            lval_del(x);
+        }
+    }
+
     lenv_del(e);
-    mpc_cleanup(8,Int,Float,Number,Symbol,Sexpr,Qexpr,Expr,Lispy);
+    mpc_cleanup(10,Int,Float,Number,Symbol,String,
+                Comment,Sexpr,Qexpr,Expr,Lispy);
     return 0;
 }
 
