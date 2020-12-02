@@ -904,6 +904,18 @@ void lenv_add_builtins(lenv* e){
  * 使用:
  * def {uncurry} pack
  * def {curry} unpack
+ * 递归:
+ * (fun {len l} {
+ *    if(== l {})
+ *      {0}
+ *      {+ 1 (len (tail l))}
+ * })
+ *
+ * (fun {reverse l} {
+ *    if(== 1 {})
+ *      {{}}
+ *    {join(reverse (tail)) (head l)}
+ * })
  */
 int main(int argc,char* argv[]){
     /*
