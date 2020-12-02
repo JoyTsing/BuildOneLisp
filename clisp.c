@@ -195,7 +195,6 @@ void lval_del(lval* v){
         case LVAL_NUM:break;
         case LVAL_ERR:free(v->err);break;
         case LVAL_SYM:free(v->sym);break;
-
         case LVAL_QEXPR:
         case LVAL_SEXPR:
             for(int i=0;i<v->count;i++){
@@ -218,6 +217,36 @@ void lenv_del(lenv* e){
 }
 
 //basic func
+
+int lval_eq(lval* x,lval* y){
+    if(x->type!=y->type){
+        return 0;
+    }
+
+    switch(x->type){
+        case LVAL_NUM:return (x->num==y->num);
+        case LVAL_ERR:return (strcmp(x->err,y->err)==0);
+        case LVAL_SYM:return (strcmp(x->sym,y->sym)==0);
+        case LVAL_FUN:
+            if(x->builtin||y->builtin){
+                return x->builtin==y->builtin;
+            }else{
+                return lval_eq(x->foramls,y->foramls)&&
+                    lval_eq(x->body,y->body);
+            }
+        case LVAL_QEXPR:
+        case LVAL_SEXPR:
+            if(x->count!=y->count)
+                return 0;
+            for(int i=0;i<x->count;i++)
+                if(!lval_eq(x->cell[i],y->cell[i]))
+                    return 0;
+            return 1;
+        break;
+    }
+    return 0;
+}
+
 lval* lval_read_num(mpc_ast_t* t){
     errno=0;
     double x=strtod(t->contents,NULL);
@@ -453,7 +482,7 @@ lval* lval_eval_sexpr(lenv* e,lval* v){
     if(v->count==0){return v;}
     //single
     if(v->count==1){
-        return lval_take(v,0);
+        return lval_eval(e,lval_take(v,0));
     }
 
     //保证第一个元素是function
@@ -675,6 +704,87 @@ int number_of_nodes(mpc_ast_t* t){
 }
 */
 
+/*logic*/
+lval* builtin_ord(lenv* e,lval* a,char* op){
+    LASSERT_NUM(op, a, 2);
+    LASSERT_TYPE(op, a, 0, LVAL_NUM);
+    LASSERT_TYPE(op, a, 1, LVAL_NUM);
+
+    int r;
+    if(strcmp(op,">")==0){
+        r=(a->cell[0]->num>a->cell[1]->num);
+    }
+    if(strcmp(op,"<")==0){
+        r=(a->cell[0]->num<a->cell[1]->num);
+    }
+    if(strcmp(op,">=")==0){
+        r=(a->cell[0]->num>=a->cell[1]->num);
+    }
+    if(strcmp(op,"<=")==0){
+        r=(a->cell[0]->num<=a->cell[1]->num);
+    }
+    lval_del(a);
+    return lval_num(r);
+}
+
+lval* builtin_cmp(lenv* e,lval* a,char* op){
+    LASSERT_NUM(op,a,2);
+    int r;
+    if(strcmp(op,"==")==0){
+        r=lval_eq(a->cell[0],a->cell[1]);
+    }
+    if(strcmp(op,"!=")==0){
+        r=!lval_eq(a->cell[0],a->cell[1]);
+    }
+    lval_del(a);
+    return lval_num(r);
+}
+
+lval* builtin_eq(lenv* e,lval* a){
+    return builtin_cmp(e,a,"==");
+}
+
+lval* builtin_ne(lenv* e,lval* a){
+    return builtin_cmp(e,a,"!=");
+}
+
+lval* builtin_gt(lenv* e, lval* a) {
+    return builtin_ord(e, a, ">");
+}
+
+lval* builtin_lt(lenv* e, lval* a) {
+    return builtin_ord(e, a, "<");
+}
+
+lval* builtin_ge(lenv* e, lval* a) {
+    return builtin_ord(e, a, ">=");
+}
+
+lval* builtin_le(lenv* e, lval* a) {
+    return builtin_ord(e, a, "<=");
+}
+
+lval* builtin_if(lenv* e,lval* a){
+    LASSERT_NUM("if", a, 3);
+    LASSERT_TYPE("if", a, 0, LVAL_NUM);
+    LASSERT_TYPE("if", a, 1, LVAL_QEXPR);
+    LASSERT_TYPE("if", a, 2, LVAL_QEXPR);
+
+    lval*x;
+    a->cell[1]->type=LVAL_SEXPR;
+    a->cell[2]->type=LVAL_SEXPR;
+
+    if(a->cell[0]->num){
+        x=lval_eval(e,lval_pop(a,1));
+    }else{
+        x=lval_eval(e,lval_pop(a,2));
+    }
+
+    lval_del(a);
+    return x;
+}
+
+/*math*/
 lval* builtin_add(lenv* e,lval* a){
     return builtin_op(e,a,"+");
 }
@@ -758,7 +868,8 @@ lval* builtin_lambda(lenv* e,lval* a){
 void lenv_add_builtins(lenv* e){
 
     lenv_add_builtin(e,"\\",builtin_lambda);
-
+    lenv_add_builtin(e,"def",builtin_def);
+    lenv_add_builtin(e,"=",builtin_put);
     /*list functions*/
     lenv_add_builtin(e, "list", builtin_list);
     lenv_add_builtin(e, "head", builtin_head);
@@ -771,8 +882,15 @@ void lenv_add_builtins(lenv* e){
     lenv_add_builtin(e, "-", builtin_sub);
     lenv_add_builtin(e, "*", builtin_mul);
     lenv_add_builtin(e, "/", builtin_div);
-    lenv_add_builtin(e,"def",builtin_def);
-    lenv_add_builtin(e,"=",builtin_put);
+
+    /* Comparison Functions */
+    lenv_add_builtin(e, "if", builtin_if);
+    lenv_add_builtin(e, "==", builtin_eq);
+    lenv_add_builtin(e, "!=", builtin_ne);
+    lenv_add_builtin(e, ">",  builtin_gt);
+    lenv_add_builtin(e, "<",  builtin_lt);
+    lenv_add_builtin(e, ">=", builtin_ge);
+    lenv_add_builtin(e, "<=", builtin_le);
 }
 
 /**
