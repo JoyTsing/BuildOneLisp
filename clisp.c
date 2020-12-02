@@ -148,6 +148,13 @@ lval* lval_fun(lbuiltin func){
     return v;
 }
 
+lval* lval_builtin(lbuiltin func){
+    lval* v=(lval*)malloc(sizeof(lval));
+    v->type=LVAL_FUN;
+    v->builtin=func;
+    return v;
+}
+
 lval* lval_lambda(lval* foramls,lval* body){
     lval* v=(lval*)malloc(sizeof(lval));
     v->type=LVAL_FUN;
@@ -397,6 +404,7 @@ lval* lval_take(lval*,int);//取出元素后将剩下的列表删除
 //lval* builtin_op(lenv*,lval*,char*);
 //lval* builtin(lval*,char*);
 lval* builtin_eval(lenv*,lval*);
+lval* builtin_list(lenv* ,lval* );
 lval* lval_call(lenv*,lval*,lval*);
 
 lval* lval_pop(lval* v,int i){
@@ -482,17 +490,47 @@ lval* lval_call(lenv* e,lval* f,lval* a){
         }
 
         lval* sym=lval_pop(f->foramls,0);
+        //变长
+        if(strcmp(sym->sym,"&")==0){
+            if(f->foramls->count!=1){
+                lval_del(a);
+                return lval_err("Function format invalid."
+                                "Symbol '&' not followed by single symbol");
+            }
+            lval* nsym=lval_pop(f->foramls,0);
+            lenv_put(f->env,nsym,builtin_list(e,a));
+            lval_del(sym);
+            lval_del(nsym);
+            break;
+        }
+        //正常
         lval* val=lval_pop(a,0);
         lenv_put(f->env,sym,val);//bind
         lval_del(sym);
         lval_del(val);
     }
     lval_del(a);
-    //
+    //只有变长参数
+    if(f->foramls->count>0&&
+       strcmp(f->foramls->cell[0]->sym,"&")==0){
+        if(f->foramls->count!=2){
+            return lval_err("Function format invalid."
+                            "Symbol '&' not followed by single symbol");
+        }
+
+        lval_del(lval_pop(f->foramls,0));
+        lval* sym=lval_pop(f->foramls,0);
+        lval* val=lval_qexpr();
+
+        lenv_put(f->env,sym,val);
+        lval_del(sym);
+        lval_del(val);
+    }
+
     if(f->foramls->count==0){
         f->env->par=e;
         return builtin_eval(f->env,
-                            lval_add(lval_sexpr(),lval_copy(f->body)));
+                        lval_add(lval_sexpr(),lval_copy(f->body)));
     }else{
         return lval_copy(f);
     }
@@ -737,7 +775,18 @@ void lenv_add_builtins(lenv* e){
     lenv_add_builtin(e,"=",builtin_put);
 }
 
-
+/**
+ * 一些sample：用一个函数定义一个函数他自身,简化语法
+ * 声明 \ {args body} {def (head args) (\ (tail args) body)}
+ * 使用 def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
+ * fun {add-together x y} {+ x y}
+ * list的拆包与打包等：
+ * fun {unpack f xs} {eval (join (list f) xs)}
+ * fun {pack f & xs} {f xs}
+ * 使用:
+ * def {uncurry} pack
+ * def {curry} unpack
+ */
 int main(int argc,char* argv[]){
     /*
      * 添加新特性的一个典型方式：
@@ -779,7 +828,7 @@ int main(int argc,char* argv[]){
               ",
               Number,Int,Float,Symbol,Sexpr,Qexpr,Expr,Lispy);
     /****语法规则的描述******/
-    puts("Lispy Version 0.0.0.1.0");
+    puts("CLisp Version 0.0.0.1.1");
     puts("press Ctrl+c to Exit\n");
 
     lenv* e=lenv_new();
