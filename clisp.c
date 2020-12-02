@@ -1027,6 +1027,10 @@ void lenv_add_builtins(lenv* e){
  *      {{}}
  *    {join(reverse (tail)) (head l)}
  * })
+ *
+ * 支持可变参数的使用
+ * 以&为分割表示使用可变参数，此时右边的参数表示可变
+ * ;后的为注释内容
  */
 int main(int argc,char* argv[]){
     /*
