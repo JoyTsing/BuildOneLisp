@@ -21,7 +21,7 @@
         {nil}
         {last l}
 })
-;创建局部作用域
+;创建持续更广的局部作用域
 (fun {let b} {
     ((\ {_} b) ())
 })
@@ -29,6 +29,25 @@
 (fun {not x}   {- 1 x})
 (fun {or x y}  {+ x y})
 (fun {and x y} {* x y})
+
+;数字运算
+(fun {min & xs} {
+    if (== (tail xs) nil) {fst xs}
+        {do
+            (= {rest} (unpack min(tail xs)))
+            (= {item} (fst xs))
+            (if (< item rest) {item} {rest})
+        }
+})
+
+(fun {max & xs} {
+    if(== (tail xs) nil) {fst xs}
+        {do
+            (= {rest} (unpack min (tail xs)))
+            (= {item} (fst xs))
+            (if (< item rest) {item} {rest})
+        }
+})
 
 ;flip使得先处理b再处理a
 (fun {flip f a b} {f b a})
@@ -78,6 +97,17 @@
     }
 })
 
+(fun {take-while f l} {
+   if (not (unpack f (head l)))
+    {nil}
+    {join (head l) (take-while f (tail l))}
+})
+
+(fun {drop-while f l} {
+   if (not (unpack f (head l)))
+    {l}
+    {drop-while f (tail l)}
+})
 ;map映射列表中的元素
 (fun {map f l} {
    if (== l nil)
@@ -93,4 +123,89 @@
                 {head l}
                 {nil})
     (filter f (tail l))}
+})
+
+;累计作用于第一个数（折叠）
+(fun {foldl f zl}{
+    if (== l nil)
+        {z}
+        {fold l (f z (fst l)) (tail l)}
+})
+
+(fun {sum l} {foldl + 0 l})
+(fun {product l} {foldl * 1 l})
+
+(fun {select &cs} {
+    if (== cs nil)
+      {error "No Selection Found"}
+      {if (fst (fst cs))
+        {snd (fst cs)}
+        {unpack select (tail cs)}
+      }
+})
+
+(def {otherwise} true)
+
+;select使用的例子
+(fun {month-day-suffix i}{
+    select
+        {(== i 0) "st"}
+        {(== i 1) "nd"}
+        {(== i 3) "rd"}
+        {otherwise "th"}
+})
+
+(fun {case x & cs} {
+    if (== cs nil)
+        {error "No Case Found"}
+        {if (== x (fst (fst cs)))
+            {snd (fst cs)}
+            {unpack case (join (list x) (tail cs))}
+        }
+})
+
+(fun {day-name x} {
+   case x
+        {0 "Monday"}
+        {1 "Tuesday"}
+        {2 "Wednesday"}
+        {3 "Thursday"}
+        {4 "Friday"}
+        {5 "Saturday"}
+        {6 "Sunday"}
+})
+
+(fun {fib n} {
+    select
+        { (== n 0) 0}
+        { (== n 1) 1}
+        { otherwise (+ (fib (- n 1)) (fib (- n2)))}
+})
+
+; 返回list中的一个pair
+(fun {lookup x l} {
+   if (== l nil)
+       {error "No Element Found"}
+        {do
+            (= {key} (fst (fst l)))
+            (= {val} (snd (fst l)))
+            (if (== key x) {val} {lookup x (tail l)})
+        }
+})
+
+;把两个list合并成一个pair的list
+(fun {zip x y} {
+   if (or (== x nil) (== y nil))
+    {nil}
+    {join (list (join (head x) (head y))) (zip (tail x) (tail y))}
+})
+
+(fun {unzip l} {
+   if (== l nil)
+    {{nil nil}}
+    {do
+        (= {x} (fst l))
+        (= {xs} (unzip (tail l)))
+        (list (join (head x) (fst xs)) (join (tail x) (snd xs)))
+    }
 })
