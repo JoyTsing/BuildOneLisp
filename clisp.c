@@ -520,7 +520,6 @@ lval* lval_eval(lenv* e,lval* v){
 
 lval* lval_eval_sexpr(lenv* e,lval* v){
 
-
     //evaluate children
     for(int i=0;i<v->count;i++){
         v->cell[i]=lval_eval(e,v->cell[i]);
@@ -567,9 +566,8 @@ lval* lval_call(lenv* e,lval* f,lval* a){
     while(a->count){
         if(f->foramls->count==0){
             lval_del(a);
-            return lval_err(
-            "Function passed too many arguments."
-            "Got %i,Expected %i.",given,total);
+            return lval_err("Function passed too many arguments."
+                "Got %i,Expected %i.",given,total);
         }
 
         lval* sym=lval_pop(f->foramls,0);
@@ -578,7 +576,7 @@ lval* lval_call(lenv* e,lval* f,lval* a){
             if(f->foramls->count!=1){
                 lval_del(a);
                 return lval_err("Function format invalid."
-                                "Symbol '&' not followed by single symbol");
+                            "Symbol '&' not followed by single symbol");
             }
             lval* nsym=lval_pop(f->foramls,0);
             lenv_put(f->env,nsym,builtin_list(e,a));
@@ -598,7 +596,7 @@ lval* lval_call(lenv* e,lval* f,lval* a){
        strcmp(f->foramls->cell[0]->sym,"&")==0){
         if(f->foramls->count!=2){
             return lval_err("Function format invalid."
-                            "Symbol '&' not followed by single symbol");
+                        "Symbol '&' not followed by single symbol");
         }
 
         lval_del(lval_pop(f->foramls,0));
@@ -1002,6 +1000,14 @@ void lenv_add_builtins(lenv* e){
  * 一些sample：用一个函数定义一个函数他自身,简化语法
  * 声明 \ {args body} {def (head args) (\ (tail args) body)}
  * 使用 def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
+ * 注意数学算式和逻辑算式均使用前缀表达式
+ * 变量的定义：
+ * def {a} 1
+ * 支持函数体作为变量定义，也就是lambda式
+ * 函数的使用方法：
+ * def {add-mul} (\ {x y} {+ x (* xy)})
+ * 条件分支的使用：
+ * if(condition par1 par2) {true:run} {false:run}
  * fun {add-together x y} {+ x y}
  * list的拆包与打包等：
  * fun {unpack f xs} {eval (join (list f) xs)}
@@ -1107,6 +1113,7 @@ int main(int argc,char* argv[]){
             if(x->type==LVAL_ERR){
                 lval_println(x);
             }
+            lval_print(x);
             lval_del(x);
         }
     }
